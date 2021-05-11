@@ -1,0 +1,97 @@
+# cellranger 3.1.0 code 
+cellranger-3.1.0/cellranger count --id=sample --transcriptome=Genome/Homo_Sapiens/Hg38.p1 --fastqs=fastq --sample=sample --localmem=90 --localcores=15
+
+# Seurat (V3.2) code 
+library(dplyr)
+library(Seurat)
+data1 <- Read10X(data.dir = "../data/seu_data13k/filtered_gene_bc_matrices/hg19/")
+dense.size <- object.size(as.matrix(data1))
+
+seu_data1 <- CreateSeuratObject(counts = data1, project = "project1", min.cells = 3, min.features = 200)
+seu_data1[["percent.mt"]] <- PercentageFeatureSet(seu_data1, pattern = "^MT-")
+
+VlnPlot(seu_data1, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+
+
+plot1 <- FeatureScatter(seu_data1, feature1 = "nCount_RNA", feature2 = "percent.mt")
+plot2 <- FeatureScatter(seu_data1, feature1 = "nCount_RNA", feature2 = "nFeature_RNA")
+CombinePlots(plots = list(plot1, plot2))
+
+
+seu_data1 <- subset(seu_data1, subset = nFeature_RNA > 200 & nFeature_RNA < 2500 & percent.mt < 5)
+
+seu_data1 <- NormalizeData(seu_data1, normalization.method = "LogNormalize", scale.factor = 10000)
+seu_data1 <- FindVariableFeatures(seu_data1, selection.method = "vst", nfeatures = 2000)
+
+# Identify the 10 most highly variable genes
+top10 <- head(VariableFeatures(seu_data1), 10)
+
+# plot variable features with and without labels
+plot1 <- VariableFeaturePlot(seu_data1)
+plot2 <- LabelPoints(plot = plot1, points = top10, repel = TRUE)
+CombinePlots(plots = list(plot1, plot2))
+
+all.genes <- rownames(seu_data1)
+seu_data1 <- ScaleData(seu_data1, features = all.genes)
+
+seu_data1 <- RunPCA(seu_data1, features = VariableFeatures(object = seu_data1))
+
+ElbowPlot(seu_data1)
+
+seu_data1 <- FindNeighbors(seu_data1, dims = 1:12)
+seu_data1 <- FindClusters(seu_data1, resolution = 0.5)
+
+seu_data1 <- RunUMAP(seu_data1, dims = 1:12)
+
+saveRDS(seu_data1, file = "../output/seu_data1_tutorial.rds")
+
+seu_data1.markers <- FindAllMarkers(seu_data1, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
+seu_data1.markers %>% group_by(cluster) %>% top_n(n = 2, wt = avg_logFC)
+
+top10 <- seu_data1.markers %>% group_by(cluster) %>% top_n(n = 10, wt = avg_logFC)
+DoHeatmap(seu_data1, features = top10$gene) + NoLegend()
+
+
+# monocle2 (V2.14.0) code 
+
+dir.create('monocle_analysis')
+setwd('monocle_analysis')
+data_count <- as(as.matrix(seu_data1@assays$RNA@counts), 'sparseMatrix') ###garnered sparsing matrix
+
+pd<-new("AnnotatedDataFrame", data = seu_data1@meta.data)  ####create phoneData
+
+fd<-new("AnnotatedDataFrame", data = data.frame(gene_short_name = row.names(data_count), row.names = row.names(data_count)))
+cds <- newCellDataSet(data_count, phenoData = pd, featureData = fd,lowerDetectionLimit = 0.5,expressionFamily = negbinomial.size()) 
+
+cds <- estimateSizeFactors(cds)
+cds <- estimateDispersions(cds)  
+disp_table <- dispersionTable(cds)
+
+filter_genes <- subset(disp_table, mean_expression >= 0.1)
+
+
+cds <- setOrderingFilter(cds, sig_marker$gene)
+
+p1<-plot_ordering_genes(cds)  
+ggsave(p1,filename = 'gene_select.pdf',width = 12,height = 10)
+ggsave(p1,filename = 'gene_select.png',width = 12,height = 10,dpi = 50)
+
+cds <- reduceDimension(cds, max_components = 2, reduction_method = 'DDRTree') #max_components draw 2 branch default, max_components )
+cds <- orderCells(cds,reverse = F) 
+# colnames(pData(cds))
+p1<-plot_cell_trajectory(cds,color_by = "Pseudotime")
+ggsave(p1,filename = 'Pseudotime.pdf',width = 12,height = 10)
+ggsave(p1,filename = 'Pseudotime.png',width = 12,height = 10,dpi = 50)
+
+p1<-plot_cell_trajectory(cds,color_by = "State")
+ggsave(p1,filename = 'State.pdf',width = 12,height = 10)
+ggsave(p1,filename = 'State.png',width = 12,height = 10,dpi = 50)
+
+# cellphonedb 
+
+write.table(as.matrix(seu_data1@assays$RNA@data), 'cellphonedb_count.txt', sep='\t', quote=F)
+meta_data <- cbind(rownames(seu_data1@meta.data), seu_data1@meta.data[,'seurat_annotations', drop=F])  
+write.table(meta_data, 'cellphonedb_meta.txt', sep='\t', quote=F, row.names=F)
+cellphonedb method statistical_analysis --project-name tissue --iterations 1000 --threshold 0.2 --result-precision 3  cellphonedb_meta.txt  cellphonedb_count.txt --counts-data=gene_name  
+cellphonedb plot dot_plot 
+cellphonedb plot heatmap_plot cellphonedb_meta.txt   
