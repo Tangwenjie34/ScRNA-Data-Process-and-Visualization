@@ -1,7 +1,7 @@
-# cellranger 3.1.0 code 
+# cellranger 3.1.0 analysis
 cellranger-3.1.0/cellranger count --id=sample --transcriptome=Genome/Homo_Sapiens/Hg38.p1 --fastqs=fastq --sample=sample --localmem=90 --localcores=15
 
-# Seurat (V3.2) code 
+# Seurat (V3.2) analysis
 library(dplyr)
 library(Seurat)
 data1 <- Read10X(data.dir = "../data/seu_data13k/filtered_gene_bc_matrices/hg19/")
@@ -52,8 +52,9 @@ top10 <- seu_data1.markers %>% group_by(cluster) %>% top_n(n = 10, wt = avg_logF
 DoHeatmap(seu_data1, features = top10$gene) + NoLegend()
 
 
-# monocle2 (V2.14.0) code 
-
+# monocle2 (V2.14.0) analysis
+library(monocle)
+library(Seurat)
 dir.create('monocle_analysis')
 setwd('monocle_analysis')
 data_count <- as(as.matrix(seu_data1@assays$RNA@counts), 'sparseMatrix') ###garnered sparsing matrix
@@ -87,8 +88,8 @@ p1<-plot_cell_trajectory(cds,color_by = "State")
 ggsave(p1,filename = 'State.pdf',width = 12,height = 10)
 ggsave(p1,filename = 'State.png',width = 12,height = 10,dpi = 50)
 
-# cellphonedb 
-
+# Cellphonedb analysis
+library(Seurat)
 write.table(as.matrix(seu_data1@assays$RNA@data), 'cellphonedb_count.txt', sep='\t', quote=F)
 meta_data <- cbind(rownames(seu_data1@meta.data), seu_data1@meta.data[,'seurat_annotations', drop=F])  
 write.table(meta_data, 'cellphonedb_meta.txt', sep='\t', quote=F, row.names=F)
